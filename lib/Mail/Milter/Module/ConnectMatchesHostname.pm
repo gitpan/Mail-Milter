@@ -1,4 +1,4 @@
-# $Id: ConnectMatchesHostname.pm,v 1.2 2004/03/24 15:14:46 tvierling Exp $
+# $Id: ConnectMatchesHostname.pm,v 1.4 2004/04/12 15:27:00 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -71,13 +71,10 @@ matching, where 10.11.12.13 is the IPv4 address of the connecting host.
 In the following cases, the string must be preceded by a non-digit
 character or otherwise must be at the start of the hostname.
 
-    010011012013.
-    010.011.012.013. (optionally without internal dots)
-    010-011-012-013.
-    013.012.011.010.
-    10.11.12.13. (optionally without internal dots)
-    10-11-12-13.
-    13.12.11.10.
+    010.011.012.013. (optionally without internal dots, or with - in place of .)
+    013.012.011.010. (optionally with - in place of .)
+    10.11.12.13. (optionally without internal dots, or with - in place of .)
+    13.12.11.10. (optionally with - in place of .)
     0A0B0C0D (hexadecimal, ignoring case)
 
 More specific patterns are anticipated to be added in the future.  Because
@@ -170,10 +167,10 @@ sub connect_callback {
 	my $hex = sprintf('%08x', unpack('N', pack('C4', $i1, $i2, $i3, $i4)));
 
 	if (
-		$hostname =~ /(?:\A|\D)$i1[\.-]$i2[\.-]$i3[\.-]$i4\./ ||
-		$hostname =~ /(?:\A|\D)$f1[\.-]?$f2[\.-]?$f3[\.-]?$f4\./ ||
-		$hostname =~ /(?:\A|\D)$i4\.$i3\.$i2\.$i1\./ ||
-		$hostname =~ /(?:\A|\D)$f4\.$f3\.$f2\.$f1\./ ||
+		$hostname =~ /(?:\A|\D)$i1[\.-]$i2[\.-]$i3[\.-]$i4\D/ ||
+		$hostname =~ /(?:\A|\D)$f1[\.-]?$f2[\.-]?$f3[\.-]?$f4\D/ ||
+		$hostname =~ /(?:\A|\D)$i4[\.-]$i3[\.-]$i2[\.-]$i1\D/ ||
+		$hostname =~ /(?:\A|\D)$f4[\.-]?$f3[\.-]?$f2[\.-]?$f1\D/ ||
 		$hostname =~ /$hex/i
 	) {
 		my $msg = $this->{_message};

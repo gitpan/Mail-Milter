@@ -1,4 +1,4 @@
-# $Id: DeferToRCPT.pm,v 1.6 2004/02/26 19:24:53 tvierling Exp $
+# $Id: DeferToRCPT.pm,v 1.7 2004/04/13 17:52:23 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -156,7 +156,11 @@ sub wrapper {
 	# Propagate the replycode only if we'll be returning an error.
 	if ($rc == SMFIS_TEMPFAIL || $rc == SMFIS_REJECT) {
 		my $reply = $newctx->get_key('reply');
-		$oldctx->setreply(@$reply) if ($reply);
+
+		if ($reply) {
+			$reply->[0] = 550 if ($reply->[0] == 554);
+			$oldctx->setreply(@$reply);
+		}
 	}
 
 	if ($newctx->get_key('stage') >= 2) {

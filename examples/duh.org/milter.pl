@@ -1,5 +1,5 @@
 #!/usr/local/bin/perl -w -I../../lib
-# $Id: milter.pl,v 1.7 2004/03/25 18:59:03 tvierling Exp $
+# $Id: milter.pl,v 1.16 2004/04/13 23:03:03 tvierling Exp $
 #
 # Copyright (c) 2002 Todd Vierling <tv@pobox.com> <tv@duh.org>.
 # This file is hereby released to the public and is free for any use.
@@ -14,15 +14,20 @@ use warnings;
 
 use Carp qw{verbose};
 use Mail::Milter::Chain;
+use Mail::Milter::Module::ConnectDNSBL;
 use Mail::Milter::Module::ConnectMatchesHostname;
 use Mail::Milter::Module::ConnectRegex;
 use Mail::Milter::Module::HeaderFromMissing;
 use Mail::Milter::Module::HeaderRegex;
 use Mail::Milter::Module::HeloRawLiteral;
+use Mail::Milter::Module::HeloRegex;
 use Mail::Milter::Module::HeloUnqualified;
+use Mail::Milter::Module::MailDomainDNSBL;
+use Mail::Milter::Module::VirusBounceSpew;
 use Mail::Milter::Wrapper::DeferToRCPT;
 use Mail::Milter::Wrapper::RejectMsgEditor;
 use Sendmail::Milter 0.18;
+use Socket;
 
 #
 # This file is arranged in top-down order.  Objects constructed
@@ -39,23 +44,14 @@ use Sendmail::Milter 0.18;
 #
 
 my $bad_headers = &HeaderRegex(
-	# foreign encoded from/to/cc does not belong in message/rfc822
-	'^(?:From|To|Cc): =\?[^\@]*\?=$',
-
-	# ISO-8859-1 rarely needs encoding
-	'^Subject: =\?iso-8859-1\?',
-
-	# Disallowed languages which I can't speak anyway
-	'^(From|To|Cc|Subject): =\?(Big5|windows-1251)\?',
-
 	# these don't belong in transit
 	'^X-UIDL: ',
 );
 
 my $spam_headers = &HeaderRegex(
 	# known spamware
-	'^X-(AD2000-Serial|Advertisement):',
-	'^X-Mailer: (Mail Bomber|Accucast)',
+	'^X-(?:AD2000-Serial|Advertisement):',
+	'^X-Mailer: (?:Mail Bomber|Accucast)',
 
 	# older Pegasus does this, but *lots* of spamware does too
 	'^Comments: Authenticated sender is',
@@ -66,33 +62,146 @@ my $spam_headers = &HeaderRegex(
 	'NO UCE means NO SPAM (no kidding!)'
 );
 
-my $virusbounce_headers = &HeaderRegex(
-	'^Subject: MDaemon Warning - Virus Found',
-	'^Subject: Norton AntiVirus detected a virus',
-	'^Subject: Returned due to virus; was:',
-	'^Subject: ScanMail Message:',
-	'^Subject: VIRUS \(.*\) IN (MAIL FROM YOU|YOUR MAIL)',
-	'^Subject: Virus detected$',
-	'^Subject: Virus Detected by Network Associates',
-	'^Subject: Warning: E-mail viruses detected',
+my $disallowed_encodings = '(?:'.join('|', qw{
+	big5
+	koi8-r
+	windows-125.
+}).')';
+
+my $disallowed_encoding_headers = &HeaderRegex(
+	'^Subject: =\?'.$disallowed_encodings.'\?',
+	'^Content-Type:.*\scharset='.$disallowed_encodings,
 )->set_message(
-	'Antivirus bounces to forged senders are also spam.  Please turn off your antivirus bounce notification!'
+	'Your international character set is not understood here; re-send your message using standard ISO-8859 or UTF8 encoding'
+);
+
+my $cloaked_encoding_headers = &HeaderRegex(
+	'^(?:Subject|From|To): =\?(?:US-ASCII|ISO-8859-1)\?'
+)->set_message(
+	'Encoded US-ASCII or ISO-8859-1 headers are not allowed due to severe abuse; re-send your message without the encoding'
 );
 
 ##### Dynamic pool rDNS, with exceptions.
 # 
 # "Good" ISPs partition their dynamic pools into easy-to-identify
 # subdomains.  But some don't, so here we go....
+#
 
 my $dynamic_rdns = new Mail::Milter::Chain(
 	# Grrr.  I shouldn't have to do this.  GET REAL rDNS, PEOPLE!
 	&ConnectRegex(
-		'\.(biz\.rr\.com|knology\.net|netrox\.net|dq1sn\.easystreet\.com)$',
+		'\.(?:biz\.rr\.com|knology\.net|netrox\.net|dq1sn\.easystreet\.com|dsl\.scrm01\.pacbell\.net)$',
 	)->accept_match(1),
+
+	&ConnectRegex(
+		'^cablelink[\d-]+\.intercable\.net$',
+	)->set_message(
+		'Dynamic pool:  Connecting hostname %H is a dynamic address.  If this mail has been rejected in error'
+	),
 	&ConnectMatchesHostname->set_message(
 		'Dynamic pool:  Connecting hostname %H contains IP address %A.  If this mail has been rejected in error'
 	),
 )->accept_break(1);
+
+##### Custom milter modules
+#
+# Don't ask and don't use.  These are duh.org site-specific, and are likely
+# of zero usefulness to anyone else.
+#
+
+my $tnf_alias_fix = {
+	envfrom => sub {
+		my $ctx = shift;
+		my $from = shift;
+
+		$ctx->setpriv($from);
+		SMFIS_CONTINUE;
+	},
+	envrcpt => sub {
+		my $ctx = shift;
+		my $rcpt = shift;
+
+		if ($rcpt =~ /\+tnf\@duh\.org/i && $ctx->getpriv() !~ /[\@\.]netbsd\.org>?$/i) {
+			$ctx->setreply(551, '5.1.1', 'Because of lax spam restrictions on netbsd.org, person-to-person mail to tv@netbsd.org is not accepted.  Please re-send your mail to the direct address:  <tv@duh.org>');
+			return SMFIS_REJECT;
+		}
+
+		SMFIS_CONTINUE;
+	},
+};
+
+##### Per-country restrictions
+#
+# The following special hack has existed in the duh.org mail config in some
+# form for a very long time.  It requires a proper /usr/share/misc/country
+# file (originally from *BSD) to map the two-letter country codes back to
+# their ISO numeric equivalents used in zz.countries.nerd.dk.
+#
+
+my @ccs = qw(AE AR BR CL CN CO CU EG GH ID IR JO KR MY NG PK SG TG TH TM TW);
+my %ccs = map { $_ => 1 } @ccs;
+
+my @zzccs;
+
+open(CC, '</usr/share/misc/country') || die $!;
+while (<CC>) {
+	s/#.*$//;
+	s/\s+$//; # also strips newlines
+
+	my @entry = split(/\t/);
+	next unless @entry;
+
+	if ($ccs{$entry[1]}) {
+		$entry[3] =~ s/^0+//;
+		push(@zzccs, inet_ntoa(pack('N', 0x7f000000 + $entry[3])));
+	}
+}
+close(CC);
+
+##### DNSBL checks
+#
+# There's quite a few used here, not all of which are appropriate for all
+# sites.  My site is somewhere between "lenient" and "strict", but YMMV.
+# Use with caution.
+#
+
+my $country_msg = 'Access denied to %A: Due to excessive spam, we do not normally accept mail from your country';
+my @country_dnsbls = (
+	&ConnectDNSBL('countries.spamhosts.duh.org')->set_message($country_msg),
+	&ConnectDNSBL('zz.countries.nerd.dk', @zzccs)->set_message($country_msg),
+);
+
+my $relay_msg = 'Access denied to %A: This address is vulnerable to open-relay/open-proxy attacks (listed in %L)';
+my @relayinput_dnsbls = (
+	&ConnectDNSBL('spamhosts.duh.org', '127.0.0.7')->set_message($relay_msg),
+	&ConnectDNSBL('dnsbl.sorbs.net', (map "127.0.0.$_", (2,3,4,5,9)))->set_message($relay_msg),
+	&ConnectDNSBL('list.dsbl.org')->set_message($relay_msg),
+	&ConnectDNSBL('relays.ordb.org')->set_message($relay_msg),
+	&ConnectDNSBL('relays.visi.com')->set_message($relay_msg),
+	&ConnectDNSBL('combined.njabl.org', '127.0.0.2', '127.0.0.9')->set_message($relay_msg),
+);
+
+my $dynamic_msg = 'Dynamic pool:  Connecting address %A is a dynamic address (listed in %L).  If this mail has been rejected in error';
+my @dynamic_dnsbls = (
+	&ConnectDNSBL('spamhosts.duh.org', '127.0.0.3')->set_message($dynamic_msg),
+	&ConnectDNSBL('dialups.visi.com', '127.0.0.3')->set_message($dynamic_msg), # PDL
+	&ConnectDNSBL('combined.njabl.org', '127.0.0.3')->set_message($dynamic_msg),
+);
+
+# ...and these use the default message.
+my @generic_dnsbls = (
+	&ConnectDNSBL('spamhosts.duh.org', (map "127.0.0.$_", (2,4,5,6,8,100))),
+	&ConnectDNSBL('spews.spamhosts.duh.org'),
+	&ConnectDNSBL('sbl-xbl.spamhaus.org'),
+#	&ConnectDNSBL('cbl.abuseat.org'), # included in sbl-xbl
+	&ConnectDNSBL('combined.njabl.org', '127.0.0.4'),
+);
+
+my @rhsbls = (
+	&MailDomainDNSBL('blackhole.securitysage.com'),
+	&MailDomainDNSBL('nomail.rhsbl.sorbs.net'),
+	&MailDomainDNSBL('rhsbl.ahbl.org'),
+);
 
 ##### Inner chain: main collection of checks
 #
@@ -102,14 +211,24 @@ my $dynamic_rdns = new Mail::Milter::Chain(
 
 my $inner_chain = new Mail::Milter::Chain(
 	$dynamic_rdns,
+	@country_dnsbls,
+	@relayinput_dnsbls,
+	@dynamic_dnsbls,
+	@generic_dnsbls,
 	&HeloUnqualified,
 	&HeloRawLiteral,
+	&HeloRegex(
+		'^humblenet\.com$',
+	),
+	@rhsbls,
 	&HeaderFromMissing,
 	$bad_headers,
 	$spam_headers,
-	$virusbounce_headers,
+	$disallowed_encoding_headers,
+	$cloaked_encoding_headers,
+	&VirusBounceSpew,
 	&HeaderRegex('^Received:.*email\.bigpond\.com \(mshttpd\)')->set_message(
-		'We do not accept Telstra/Bigpond webmail here due to severe abuse; please use your real e-mail account.'
+		'We do not accept Telstra/Bigpond webmail here due to severe abuse; please use your real e-mail account'
 	),
 );
 
@@ -170,6 +289,7 @@ my $outer_chain = new Mail::Milter::Chain(
 	&ConnectRegex(
 		@relay_domain_regexes,
 	)->accept_match(1),
+	$tnf_alias_fix,		# duh.org local only
 	{
 		envrcpt => sub {
 			shift; # $ctx

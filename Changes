@@ -1,6 +1,16 @@
-$Id: Changes,v 1.13 2004/03/29 18:13:13 tvierling Exp $
+$Id: Changes,v 1.19 2004/04/14 01:07:05 tvierling Exp $
 
 Revision history for Perl extension Mail::Milter.
+
+0.04  Wed Apr 14 01:00:00 2004 UTC
+	- added modules
+		Mail::Milter::Module::ConnectDNSBL
+		Mail::Milter::Module::HeloRegex
+		Mail::Milter::Module::MailDomainDNSBL
+		Mail::Milter::Module::VirusBounceSpew
+	- changed Mail::Milter::Wrapper::DeferToRCPT to intercept normally
+		554 SMTP response codes (not valid for RCPT per RFC2822),
+		and replace them with 550 (which is valid, ibid.).
 
 0.03  Mon Mar 29 17:30:00 2004 UTC
 	- added module Mail::Milter::Module::ConnectMatchesHostname

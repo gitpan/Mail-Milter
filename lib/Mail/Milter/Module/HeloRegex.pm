@@ -1,4 +1,4 @@
-# $Id: HeaderRegex.pm,v 1.5 2004/04/12 14:21:41 tvierling Exp $
+# $Id: HeloRegex.pm,v 1.1 2004/04/12 14:24:08 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -29,7 +29,7 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-package Mail::Milter::Module::HeaderRegex;
+package Mail::Milter::Module::HeloRegex;
 
 use 5.006;
 use base Exporter;
@@ -41,26 +41,28 @@ use warnings;
 use Carp;
 use Sendmail::Milter 0.18; # get needed constants
 
-our $VERSION = '0.03';
+our $VERSION = '0.01';
 
 =pod
 
 =head1 NAME
 
-Mail::Milter::Module::HeaderRegex - milter to accept/reject messages with certain headers
+Mail::Milter::Module::HeloRegex - milter to accept/reject connections with certain HELO values
 
 =head1 SYNOPSIS
 
-    use Mail::Milter::Module::HeaderRegex;
+    use Mail::Milter::Module::HeloRegex;
 
-    my $milter = new Mail::Milter::Module::HeaderRegex('^Foo: ');
+    my $milter = new Mail::Milter::Module::HeloRegex('^foo\.com$');
 
-    my $milter2 = &HeaderRegex('^Foo: Bar'); # convenience
+    my $milter2 = &HeloRegex('^foo\.com$'); # convenience
 
 =head1 DESCRIPTION
 
-This milter module rejects messages at DATA phase if one of the message's
-headers matches user-supplied regular expressions.
+This milter module rejects entire SMTP connections if the connecting client
+issues a HELO command matching user-supplied regular expressions.  Note that
+only the initial word of the HELO string is tested; any EHLO parameters are
+not checked by the regexes.
 
 =head1 METHODS
 
@@ -68,10 +70,10 @@ headers matches user-supplied regular expressions.
 
 =cut
 
-our @EXPORT = qw(&HeaderRegex);
+our @EXPORT = qw(&HeloRegex);
 
-sub HeaderRegex {
-	new Mail::Milter::Module::HeaderRegex(@_);
+sub HeloRegex {
+	new Mail::Milter::Module::HeloRegex(@_);
 }
 
 =pod
@@ -87,9 +89,9 @@ checking.
 sub new ($$;@) {
 	my $this = Mail::Milter::Object::new(shift);
 
-	$this->{_message} = 'Malformed or invalid header %H: in message';
+	$this->{_message} = 'HELO parameter "%H" not permitted at this site';
 
-	croak 'new HeaderRegex: no regexes supplied' unless scalar @_;
+	croak 'new HeloRegex: no regexes supplied' unless scalar @_;
 	$this->{_regexes} = [ map qr/$_/i, @_ ];
 
 	$this;
@@ -100,7 +102,7 @@ sub new ($$;@) {
 =item set_message(MESSAGE)
 
 Sets the message used when rejecting messages.  This string may contain the
-substring C<%H>, which will be replaced by the matching header name.
+substring C<%H>, which will be replaced by the matching HELO parameter.
 
 This method returns a reference to the object itself, allowing this method
 call to be chained.
@@ -115,18 +117,18 @@ sub set_message ($$) {
 	$this;
 }
 
-sub header_callback {
+sub helo_callback {
 	my $this = shift;
 	my $ctx = shift;
-	my $hname = shift;
-	my $header = "$hname: ".(shift);
+	my $helo = shift;
+	# ignore additional parameters
 
 	foreach my $rx (@{$this->{_regexes}}) {
-		if ($header =~ $rx) {
+		if ($helo =~ $rx) {
 			my $msg = $this->{_message};
 
 			if (defined($msg)) {
-				$msg =~ s/%H/$hname/g;
+				$msg =~ s/%H/$helo/g;
 				$ctx->setreply('554', '5.7.1', $msg);
 			}
 
