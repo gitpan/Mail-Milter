@@ -1,4 +1,4 @@
-# $Id: ConnectDNSBL.pm,v 1.5 2004/04/14 01:03:41 tvierling Exp $
+# $Id: ConnectDNSBL.pm,v 1.6 2004/04/15 18:37:56 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -43,7 +43,7 @@ use Sendmail::Milter 0.18; # get needed constants
 use Socket;
 use UNIVERSAL;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 =pod
 
@@ -120,7 +120,7 @@ sub new ($$;@) {
 	my $dnsbl = $this->{_dnsbl} = shift;
 
 	$this->{_accept} = 0;
-	$this->{_tempfail} = SMFIS_TEMPFAIL;
+	$this->{_ignoretempfail} = 0;
 	$this->{_message} = 'Access denied to host %A (address is listed by %L)';
 
 	if (UNIVERSAL::isa($_[0], 'CODE')) {
@@ -200,7 +200,7 @@ sub ignore_tempfail ($$) {
 	my $flag = shift;
 
 	croak 'ignore_tempfail: flag argument is undef' unless defined($flag);
-	$this->{_tempfail} = $flag ? SMFIS_CONTINUE : SMFIS_TEMPFAIL;
+	$this->{_ignoretempfail} = $flag;
 
 	$this;
 }
@@ -246,9 +246,10 @@ sub connect_callback {
 
 	unless (scalar @lookup_addrs) {
 		# h_errno 1 == HOST_NOT_FOUND
-		return ($? == 1) ?
-			SMFIS_CONTINUE :
-			$this->{_tempfail};
+		return SMFIS_CONTINUE if ($? == 1 || $this->{_ignoretempfail});
+
+		$ctx->setreply('451', '4.7.1', "Temporary failure in DNS lookup for $lookup");
+		return SMFIS_TEMPFAIL;
 	}
 
 	foreach my $lookup_addr (@lookup_addrs) {

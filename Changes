@@ -1,8 +1,14 @@
-$Id: Changes,v 1.19 2004/04/14 01:07:05 tvierling Exp $
+$Id: Changes,v 1.22 2004/04/15 21:11:30 tvierling Exp $
 
 Revision history for Perl extension Mail::Milter.
 
-0.04  Wed Apr 14 01:00:00 2004 UTC
+0.05  Thu Apr 15 19:15:00 2004 UTC
+	- fixed Mail::Milter::Module::*DNSBL to return a descriptive 451
+		error on a temporary DNSBL failure
+	- fixed Mail::Milter::Module::MailDomainDNSBL not to break on <>
+		sender (would cause a query beginning with a dot)
+
+0.04  [withdrawn due to <> bug fixed in 0.05, above]
 	- added modules
 		Mail::Milter::Module::ConnectDNSBL
 		Mail::Milter::Module::HeloRegex

@@ -1,4 +1,4 @@
-# $Id: Milter.pm,v 1.19 2004/04/14 01:07:06 tvierling Exp $
+# $Id: Milter.pm,v 1.20 2004/04/14 01:37:27 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -40,7 +40,7 @@ use Carp;
 use Symbol;
 use UNIVERSAL;
 
-our $VERSION = '0.04';
+our $VERSION = '0.05';
 
 # internal function to resolve a callback from name to coderef
 sub resolve_callback ($$) {
