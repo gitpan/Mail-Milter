@@ -1,0 +1,22 @@
+$Id: Changes,v 1.9 2004/02/25 16:40:51 tvierling Exp $
+
+Revision history for Perl extension Mail::Milter.
+
+0.01  Tue Feb 24 02:20:00 2004 UTC
+	- first version, including:
+		Mail::Milter::Chain - chains multiple milters
+		Mail::Milter::Object - reworks milter into an object model
+		Mail::Milter::Wrapper - intercepts milter calls with a hook
+		Mail::Milter::Module::HeaderFromMissing
+		Mail::Milter::Module::HeloUnqualified
+
+0.02  Wed Feb 25 16:45:00 2004 UTC
+	- added several Modules and Wrappers
+		Mail::Milter::Module::ConnectRegex
+		Mail::Milter::Module::HeaderRegex
+		Mail::Milter::Module::HeloRawLiteral
+		Mail::Milter::Wrapper::DeferToRCPT
+		Mail::Milter::Wrapper::RejectMsgEditor
+
+	- API CHANGE: changed Mail::Milter::Wrapper to pass reference to
+		wrapper as first arg to wrapper subroutine
