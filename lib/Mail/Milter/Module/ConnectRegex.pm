@@ -1,4 +1,4 @@
-# $Id: ConnectRegex.pm,v 1.7 2004/02/25 16:06:41 tvierling Exp $
+# $Id: ConnectRegex.pm,v 1.10 2004/02/26 19:24:52 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -42,6 +42,8 @@ use Carp;
 use Sendmail::Milter 0.18; # get needed constants
 use Socket;
 
+our $VERSION = '0.03';
+
 =pod
 
 =head1 NAME
@@ -69,8 +71,6 @@ whitelisting Chain element; see C<accept_match()>.
 =over 4
 
 =cut
-
-our $VERSION = $Mail::Milter::VERSION;
 
 our @EXPORT = qw(&ConnectRegex);
 
@@ -123,8 +123,10 @@ call to be chained.
 
 sub accept_match ($$) {
 	my $this = shift;
+	my $flag = shift;
 
-	$this->{_accept} = shift;
+	croak 'accept_match: flag argument is undef' unless defined($flag);
+	$this->{_accept} = $flag;
 
 	$this;
 }

@@ -1,4 +1,4 @@
-# $Id: Chain.pm,v 1.6 2004/02/25 15:43:56 tvierling Exp $
+# $Id: Chain.pm,v 1.9 2004/02/26 19:24:50 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -40,6 +40,8 @@ use Carp;
 use Mail::Milter;
 use Sendmail::Milter 0.18; # get needed constants
 use UNIVERSAL;
+
+our $VERSION = '0.03';
 
 =pod
 
@@ -87,12 +89,6 @@ difficult to diagnose problems at callback time.
 =head1 METHODS
 
 =over 4
-
-=cut
-
-our $VERSION = $Mail::Milter::VERSION;
-
-=pod
 
 =item new([HASHREF, ...])
 
@@ -178,8 +174,10 @@ method call to be chained.
 
 sub accept_break ($$) {
 	my $this = shift;
+	my $flag = shift;
 
-	$this->{_acceptbreak} = shift;
+	croak 'accept_break: flag argument is undef' unless defined($flag);
+	$this->{_acceptbreak} = $flag;
 
 	$this;
 }

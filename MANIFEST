@@ -7,6 +7,7 @@ examples/duh.org/restart.sh
 lib/Mail/Milter.pm
 lib/Mail/Milter/Chain.pm
 lib/Mail/Milter/ContextWrapper.pm
+lib/Mail/Milter/Module/ConnectMatchesHostname.pm
 lib/Mail/Milter/Module/ConnectRegex.pm
 lib/Mail/Milter/Module/HeaderRegex.pm
 lib/Mail/Milter/Module/HeaderFromMissing.pm
@@ -16,3 +17,6 @@ lib/Mail/Milter/Object.pm
 lib/Mail/Milter/Wrapper.pm
 lib/Mail/Milter/Wrapper/DeferToRCPT.pm
 lib/Mail/Milter/Wrapper/RejectMsgEditor.pm
+t/00_milter.t
+t/01_chain.t
+t/02_object.t

@@ -1,4 +1,4 @@
-# $Id: Object.pm,v 1.1 2004/02/23 19:43:12 tvierling Exp $
+# $Id: Object.pm,v 1.3 2004/02/26 19:24:51 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -37,10 +37,11 @@ use base Exporter;
 use strict;
 use warnings;
 
-use Mail::Milter;
 use Sendmail::Milter 0.18; # get needed constants
 use Symbol;
 use UNIVERSAL;
+
+our $VERSION = '0.03';
 
 =pod
 
@@ -89,14 +90,6 @@ context object.
 =head1 METHODS
 
 =over 4
-
-=cut
-
-our $VERSION = $Mail::Milter::VERSION;
-
-#our @EXPORT = qw();
-
-=pod
 
 =item new()
 

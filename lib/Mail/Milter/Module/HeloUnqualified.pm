@@ -1,4 +1,4 @@
-# $Id: HeloUnqualified.pm,v 1.2 2004/02/24 19:08:47 tvierling Exp $
+# $Id: HeloUnqualified.pm,v 1.4 2004/02/26 19:24:52 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -40,6 +40,8 @@ use warnings;
 
 use Sendmail::Milter 0.18; # get needed constants
 
+our $VERSION = '0.03';
+
 =pod
 
 =head1 NAME
@@ -65,8 +67,6 @@ string which will be exempted from this check.  Commonly, '^localhost' is
 excepted.
 
 =cut
-
-our $VERSION = $Mail::Milter::VERSION;
 
 our @EXPORT = qw(&HeloUnqualified);
 

@@ -1,4 +1,4 @@
-# $Id: HeaderFromMissing.pm,v 1.2 2004/02/24 19:08:47 tvierling Exp $
+# $Id: HeaderFromMissing.pm,v 1.4 2004/02/26 19:24:52 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -40,6 +40,8 @@ use warnings;
 
 use Sendmail::Milter 0.18; # get needed constants
 
+our $VERSION = '0.03';
+
 =pod
 
 =head1 NAME
@@ -61,8 +63,6 @@ the From: header.  This header should never be absent on any message,
 even if that message is missing Date: or Subject:.
 
 =cut
-
-our $VERSION = $Mail::Milter::VERSION;
 
 our @EXPORT = qw(&HeaderFromMissing);
 

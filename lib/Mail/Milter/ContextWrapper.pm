@@ -1,4 +1,4 @@
-# $Id: ContextWrapper.pm,v 1.2 2004/02/24 16:47:01 tvierling Exp $
+# $Id: ContextWrapper.pm,v 1.4 2004/02/26 19:24:50 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -37,8 +37,10 @@ use strict;
 use warnings;
 
 use Carp;
-use Mail::Milter;
 use Sendmail::Milter 0.18; # get needed constants
+
+our $VERSION = '0.03';
+our $AUTOLOAD;
 
 =pod
 
@@ -77,14 +79,6 @@ embedded context object.
 =head1 METHODS
 
 =over 4
-
-=cut
-
-our $VERSION = $Mail::Milter::VERSION;
-
-our $AUTOLOAD;
-
-=pod
 
 =item new(CTX, { NAME => \&SUB[, ...] })
 

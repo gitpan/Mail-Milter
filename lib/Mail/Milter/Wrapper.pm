@@ -1,4 +1,4 @@
-# $Id: Wrapper.pm,v 1.3 2004/02/24 16:40:50 tvierling Exp $
+# $Id: Wrapper.pm,v 1.5 2004/02/26 19:24:52 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -40,6 +40,8 @@ use Carp;
 use Mail::Milter;
 use Sendmail::Milter 0.18; # get needed constants
 
+our $VERSION = '0.03';
+
 =pod
 
 =head1 NAME
@@ -65,12 +67,6 @@ of the passed arguments and/or return code of the contained milter.
 =head1 METHODS
 
 =over 4
-
-=cut
-
-our $VERSION = $Mail::Milter::VERSION;
-
-=pod
 
 =item new(MILTER, CODEREF[, CALLBACK ...])
 

@@ -1,5 +1,5 @@
-#!/usr/local/bin/perl -w -I../lib
-# $Id: milter.pl,v 1.1 2004/02/25 16:29:05 tvierling Exp $
+#!/usr/local/bin/perl -w -I../../lib
+# $Id: milter.pl,v 1.7 2004/03/25 18:59:03 tvierling Exp $
 #
 # Copyright (c) 2002 Todd Vierling <tv@pobox.com> <tv@duh.org>.
 # This file is hereby released to the public and is free for any use.
@@ -14,6 +14,7 @@ use warnings;
 
 use Carp qw{verbose};
 use Mail::Milter::Chain;
+use Mail::Milter::Module::ConnectMatchesHostname;
 use Mail::Milter::Module::ConnectRegex;
 use Mail::Milter::Module::HeaderFromMissing;
 use Mail::Milter::Module::HeaderRegex;
@@ -29,39 +30,6 @@ use Sendmail::Milter 0.18;
 # and will be reached last; conversely, objects at the bottom are
 # reached first.
 #
-
-##### Connecting host regexes
-#
-# "Good" ISPs partition their dynamic pools into easy-to-identify
-# subdomains.  But some don't, so here we go....
-#
-
-my $dynamic_regexes = &ConnectRegex(
-	# specifics
-	'^[^\.]+\.(?:elisa\.omakaista\.fi|\w\w\.hsia\.telus\.net)$',
-	'^[\d-]+\.(?:cpe\.cableone\.net|mtnns\.net|brutele\.be|barak\.net\.il|bbeyond\.nl)$',
-	'^[\d-]+\.cable\.\w+\.\w\w\.blueyonder\.co\.uk$',
-	'^a[\d-]+\.xs4all\.nl$',
-	'^adsl-[\d-]+\.dsl\.\w+\.(ameritech\.net|pacbell\.net)$',
-	'^c[\d\.]+\.\w+\.\w\w\.charter\.com$',
-	'^cpe-[\d-]+\.\w+\.(\w\w\.charter\.com|rr\.com)$',
-	'^cs[\d-]+\.\w+\.rr\.com$',
-	'^d[\d-]+\.cust\.tele2\.fr$',
-	'^dclient.*\.hispeed\.ch$',
-	'^dsl-[\d-]+\.(arcor-ip\.net|prodigy\.net\.mx)$',
-	'^h[\d-]+\.\w+\.shawcable\.net$',
-	'^host\d+\.\w+\.dsl\.primus\.ca$',
-	'^ip[\d-]+\.\w\w\.\w\w\.cox\.net$',
-	'^ip-[\d-]+\.internet\.co\.nz',
-	'^pns[\d-]+\.inter\.net\.il$',
-	'^public.*\.broadband\.ntl\.com$',
-	'^user-\w+\.cable\.mindspring\.com$',
-
-	# generics
-	'^(?:dhcp|pool|ppp(?:oe)?)(?:-)?[\d-]+\.',
-)->set_message(
-	'Access denied to %H: This is a dynamic pool address; you must use your Internet provider\'s SMTP server for sending outbound mail'
-);
 
 ##### Bad headers
 #
@@ -98,6 +66,34 @@ my $spam_headers = &HeaderRegex(
 	'NO UCE means NO SPAM (no kidding!)'
 );
 
+my $virusbounce_headers = &HeaderRegex(
+	'^Subject: MDaemon Warning - Virus Found',
+	'^Subject: Norton AntiVirus detected a virus',
+	'^Subject: Returned due to virus; was:',
+	'^Subject: ScanMail Message:',
+	'^Subject: VIRUS \(.*\) IN (MAIL FROM YOU|YOUR MAIL)',
+	'^Subject: Virus detected$',
+	'^Subject: Virus Detected by Network Associates',
+	'^Subject: Warning: E-mail viruses detected',
+)->set_message(
+	'Antivirus bounces to forged senders are also spam.  Please turn off your antivirus bounce notification!'
+);
+
+##### Dynamic pool rDNS, with exceptions.
+# 
+# "Good" ISPs partition their dynamic pools into easy-to-identify
+# subdomains.  But some don't, so here we go....
+
+my $dynamic_rdns = new Mail::Milter::Chain(
+	# Grrr.  I shouldn't have to do this.  GET REAL rDNS, PEOPLE!
+	&ConnectRegex(
+		'\.(biz\.rr\.com|knology\.net|netrox\.net|dq1sn\.easystreet\.com)$',
+	)->accept_match(1),
+	&ConnectMatchesHostname->set_message(
+		'Dynamic pool:  Connecting hostname %H contains IP address %A.  If this mail has been rejected in error'
+	),
+)->accept_break(1);
+
 ##### Inner chain: main collection of checks
 #
 # As well as the more complicated checks above, I've added some
@@ -105,12 +101,16 @@ my $spam_headers = &HeaderRegex(
 #
 
 my $inner_chain = new Mail::Milter::Chain(
-	$dynamic_regexes,
+	$dynamic_rdns,
 	&HeloUnqualified,
 	&HeloRawLiteral,
 	&HeaderFromMissing,
 	$bad_headers,
 	$spam_headers,
+	$virusbounce_headers,
+	&HeaderRegex('^Received:.*email\.bigpond\.com \(mshttpd\)')->set_message(
+		'We do not accept Telstra/Bigpond webmail here due to severe abuse; please use your real e-mail account.'
+	),
 );
 
 ##### Error message rewriter: point user to postmaster@duh.org
@@ -137,10 +137,39 @@ my $rewritten_chain = &RejectMsgEditor($inner_chain, sub {
 # is reached.
 #
 
+# First fetch the /etc/mail/relay-domains list.
+# Note that I already put "localhost" in that file, so it's not
+# specified again in the call to ConnectRegex below.
+
+my @relay_domain_regexes;
+open(I, '</etc/mail/relay-domains');
+while (<I>) {
+	chomp;
+	s/#.*$//;
+	s/^\s+//;
+	s/\s+$//;
+	next if /^$/;
+
+	# Dots are escaped to make them valid in REs.
+	s/\./\\\./g;
+	if (/^[0-9\\\.]+$/) {
+		# IP address; match a literal.
+
+		s/$/\]/ unless /\\\.$/; # if not ending in a dot, match exactly
+		push(@relay_domain_regexes, qr/^\[$_/i);
+	} else {
+		# Domain/host name; match string as-is.
+
+		s/^/\^/ unless /^\\\./; # if not starting with a dot, match exactly
+		push(@relay_domain_regexes, qr/$_$/i);
+	}
+}
+close(I);
+
 my $outer_chain = new Mail::Milter::Chain(
-	&ConnectRegex(qw{
-		^\[127\.
-	})->accept_match(1),
+	&ConnectRegex(
+		@relay_domain_regexes,
+	)->accept_match(1),
 	{
 		envrcpt => sub {
 			shift; # $ctx
@@ -161,4 +190,4 @@ $outer_chain->accept_break(1);
 
 Sendmail::Milter::auto_setconn('newmilter');
 Sendmail::Milter::register('newmilter', $outer_chain, SMFI_CURR_ACTS);
-Sendmail::Milter::main();
+Sendmail::Milter::main(10, 50);

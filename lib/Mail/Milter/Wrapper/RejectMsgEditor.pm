@@ -1,4 +1,4 @@
-# $Id: RejectMsgEditor.pm,v 1.4 2004/02/25 06:51:43 tvierling Exp $
+# $Id: RejectMsgEditor.pm,v 1.6 2004/02/26 19:24:53 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -42,6 +42,8 @@ use Carp;
 use Mail::Milter::ContextWrapper;
 use Sendmail::Milter 0.18; # get needed constants
 
+our $VERSION = '0.03';
+
 =pod
 
 =head1 NAME
@@ -74,8 +76,6 @@ For example:
     });
 
 =cut
-
-our $VERSION = $Mail::Milter::VERSION;
 
 our @EXPORT = qw(&RejectMsgEditor);
 
