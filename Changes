@@ -1,6 +1,17 @@
-$Id: Changes,v 1.22 2004/04/15 21:11:30 tvierling Exp $
+$Id: Changes,v 1.28 2004/11/25 21:39:30 tvierling Exp $
 
 Revision history for Perl extension Mail::Milter.
+
+0.06  Thu Nov 25 20:30:00 2004 UTC
+	- fixed Mail::Milter::Chain where second and subsequent RCPTs
+		were not being rejected properly
+	- fixed Mail::Milter::Wrapper::DeferToRCPT where a reject at envfrom
+		was propagated as-is to further envfroms on the same session
+		(should be per-envfrom only)
+	- added Mail::Milter::Module::ConnectASNBL
+	- added Mail::Milter::Wrapper::DecodeSRS
+	- fixed parsing of AS_SETs in the AS list returned from the DNSBL
+	- added Mail::Milter::Module::MailDomainDotMX
 
 0.05  Thu Apr 15 19:15:00 2004 UTC
 	- fixed Mail::Milter::Module::*DNSBL to return a descriptive 451

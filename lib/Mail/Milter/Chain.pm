@@ -1,4 +1,4 @@
-# $Id: Chain.pm,v 1.9 2004/02/26 19:24:50 tvierling Exp $
+# $Id: Chain.pm,v 1.10 2004/04/23 15:51:39 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -217,7 +217,7 @@ sub dispatch ($$;@) {
 		if ($newrc == SMFIS_TEMPFAIL || $newrc == SMFIS_REJECT) {
 			# If "envrcpt", these are special and don't nuke.
 			$rc = $newrc;
-			@$chain = () unless $cb eq 'envrcpt';
+			@$chain = () unless $cbname eq 'envrcpt';
 		} elsif ($newrc == SMFIS_DISCARD) {
 			$rc = $newrc;
 			@$chain = ();

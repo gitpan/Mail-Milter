@@ -1,4 +1,4 @@
-# $Id: DeferToRCPT.pm,v 1.7 2004/04/13 17:52:23 tvierling Exp $
+# $Id: DeferToRCPT.pm,v 1.8 2004/04/23 15:54:14 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -129,7 +129,7 @@ sub wrapper {
 		if ($rc == SMFIS_CONTINUE || $newctx->get_key('stage') >= 1) {
 			$newctx->set_key(stage => 1);
 			$newctx->set_key(reply => undef);
-			$rc = SMFIS_CONTINUE;
+			$newctx->set_key(rc => ($rc = SMFIS_CONTINUE));
 		}
 	} elsif ($cbname eq 'envrcpt') {
 		#
@@ -138,6 +138,7 @@ sub wrapper {
 		if ($rc == SMFIS_CONTINUE) {
 			$newctx->set_key(stage => 2);
 			$newctx->set_key(reply => undef);
+			$newctx->set_key(rc => $rc);
 		}
 	}
 

@@ -1,4 +1,4 @@
-# $Id: MailDomainDNSBL.pm,v 1.4 2004/04/15 18:37:56 tvierling Exp $
+# $Id: MailDomainDNSBL.pm,v 1.6 2004/11/25 21:08:25 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -43,7 +43,7 @@ use Sendmail::Milter 0.18; # get needed constants
 use Socket;
 use UNIVERSAL;
 
-our $VERSION = '0.02';
+our $VERSION = '0.03';
 
 =pod
 
@@ -64,7 +64,7 @@ Mail::Milter::Module::MailDomainDNSBL - milter to accept/reject mail whose sende
 =head1 DESCRIPTION
 
 This milter module rejects any mail from a sender's domain (in the MAIL
-FROM part of the SMTP transaction, not in the From: header) matches a
+FROM part of the SMTP transaction, not in the From: header) matching a
 given DNS Blocking List (DNSBL).  It can also function as a whitelisting
 Chain element; see C<accept_match()>.
 
@@ -108,8 +108,9 @@ If a SUBREF (reference to a subroutine; may be an anonymous inline
 C<sub{}>) is supplied, it is called for each of the address records
 returned by the DNSBL lookup.  The subroutine should return 0 or undef to
 indicate a failed match, and nonzero to indicate a successful match.  The
-subroutine receives a binary-encoded four byte scalar that should be
-transformed as needed with C<inet_ntoa()> or C<unpack>.
+subroutine receives two arguments: a binary-encoded four byte scalar that
+should be transformed as needed with C<inet_ntoa()> or C<unpack>, and the
+domain name being checked by the DNSBL.
 
 =cut
 
@@ -253,7 +254,7 @@ sub envfrom_callback {
 	}
 
 	foreach my $lookup_addr (@lookup_addrs) {
-		if (&{$this->{_matcher}}($lookup_addr)) {
+		if (&{$this->{_matcher}}($lookup_addr, $fromdomain)) {
 			return SMFIS_ACCEPT if $this->{_accept};
 
 			my $msg = $this->{_message};

@@ -1,4 +1,4 @@
-# $Id: VirusBounceSpew.pm,v 1.6 2004/04/12 14:24:24 tvierling Exp $
+# $Id: VirusBounceSpew.pm,v 1.9 2004/09/23 15:11:13 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -120,24 +120,29 @@ sub header_callback {
 	my $header = "$hname: ".(shift);
 
 	if (
+		$header =~ /^From: amavisd(?:-new)? <postmaster\@/i ||
+		$header =~ /^From: MailMarshal\@\s+$/ ||
 		$header =~ /^Subject: ACHTUNG! Sie haben eine mit einem Virus/ ||
 		$header =~ /^Subject: Antigen found VIRUS=/ ||
+		$header =~ /^Subject: AVISO DE VIRUS / ||
 		$header =~ /^Subject: Warning: antivirus system report$/ ||
 		$header =~ /^Subject: Disallowed attachment type found in sent message/ ||
 		$header =~ /^Subject: Email violation detected in an email you sent/ ||
 		$header =~ /^Subject: Failed to clean virus file/ ||
+		$header =~ /^Subject: Filter scan result notification from / ||
 		$header =~ /^Subject: Illegal attachment type found in sent message/ ||
 		$header =~ /^Subject: InterScan NT Alert$/ ||
 		$header =~ /^Subject: Mail delivery failed \(virus detected\)/ ||
 		$header =~ /^Subject: MDaemon (Notification -- Attachment Removed|Warning - Virus Found)/ ||
 		$header =~ /^Subject: Norton AntiVirus detected (and quarantined )?a virus/ ||
+		$header =~ /^Sublect: Panda Antivirus Platinum warning$/i ||
 		$header =~ /^Subject: Returned due to virus; was:/ ||
 		$header =~ /^Subject: Spam mail warning notification/ ||
 		$header =~ /^Subject: Virenwarnung$/ ||
-		$header =~ /^Subject: VIRUS (?:\(.*\) *)?IN (MAIL FROM YOU|YOUR MAIL)/ ||
 		$header =~ /^Subject: Virus detected$/ ||
 		$header =~ /^Subject: Virus Detected by Network Associates/ ||
-		$header =~ /^Subject: (?:Warning *[:!-]* *)?(?:E-mail )?Virus (Alert|Detected|Found)/i ||
+		$header =~ /^Subject: (?:MailMarshal|Symantec Mail Security) (?:has )?detected / ||
+		$header =~ /^Subject: (?:Warning *[:!-]* *)?(?:E-mail )?Virus(?:es)? (Alert|Detected|Found)/i ||
 	0) {
 		my $msg = $this->{_message};
 

@@ -1,5 +1,5 @@
 #!/usr/local/bin/perl -w -I../../lib
-# $Id: milter.pl,v 1.16 2004/04/13 23:03:03 tvierling Exp $
+# $Id: milter.pl,v 1.23 2004/07/30 17:31:47 tvierling Exp $
 #
 # Copyright (c) 2002 Todd Vierling <tv@pobox.com> <tv@duh.org>.
 # This file is hereby released to the public and is free for any use.
@@ -14,6 +14,7 @@ use warnings;
 
 use Carp qw{verbose};
 use Mail::Milter::Chain;
+use Mail::Milter::Module::ConnectASNBL;
 use Mail::Milter::Module::ConnectDNSBL;
 use Mail::Milter::Module::ConnectMatchesHostname;
 use Mail::Milter::Module::ConnectRegex;
@@ -90,7 +91,8 @@ my $cloaked_encoding_headers = &HeaderRegex(
 my $dynamic_rdns = new Mail::Milter::Chain(
 	# Grrr.  I shouldn't have to do this.  GET REAL rDNS, PEOPLE!
 	&ConnectRegex(
-		'\.(?:biz\.rr\.com|knology\.net|netrox\.net|dq1sn\.easystreet\.com|dsl\.scrm01\.pacbell\.net)$',
+		'\.(?:biz\.rr\.com|ipxserver\.de|knology\.net|netrox\.net|dq1sn\.easystreet\.com|(?:scrm01|snfc21)\.pacbell\.net)$',
+		'^wsip-[\d-]+\..*\.cox\.net$',
 	)->accept_match(1),
 
 	&ConnectRegex(
@@ -109,26 +111,7 @@ my $dynamic_rdns = new Mail::Milter::Chain(
 # of zero usefulness to anyone else.
 #
 
-my $tnf_alias_fix = {
-	envfrom => sub {
-		my $ctx = shift;
-		my $from = shift;
-
-		$ctx->setpriv($from);
-		SMFIS_CONTINUE;
-	},
-	envrcpt => sub {
-		my $ctx = shift;
-		my $rcpt = shift;
-
-		if ($rcpt =~ /\+tnf\@duh\.org/i && $ctx->getpriv() !~ /[\@\.]netbsd\.org>?$/i) {
-			$ctx->setreply(551, '5.1.1', 'Because of lax spam restrictions on netbsd.org, person-to-person mail to tv@netbsd.org is not accepted.  Please re-send your mail to the direct address:  <tv@duh.org>');
-			return SMFIS_REJECT;
-		}
-
-		SMFIS_CONTINUE;
-	},
-};
+# (empty)
 
 ##### Per-country restrictions
 #
@@ -138,7 +121,7 @@ my $tnf_alias_fix = {
 # their ISO numeric equivalents used in zz.countries.nerd.dk.
 #
 
-my @ccs = qw(AE AR BR CL CN CO CU EG GH ID IR JO KR MY NG PK SG TG TH TM TW);
+my @ccs = qw(AR BR CL CN CO JO KR MX MY NG PK SG TH TM TW);
 my %ccs = map { $_ => 1 } @ccs;
 
 my @zzccs;
@@ -165,42 +148,40 @@ close(CC);
 # Use with caution.
 #
 
+# ordering rationale: in each set, zones queried in an earlier set are
+# queried first in subsequent sets so as to reuse named-cached values
+
 my $country_msg = 'Access denied to %A: Due to excessive spam, we do not normally accept mail from your country';
 my @country_dnsbls = (
-	&ConnectDNSBL('countries.spamhosts.duh.org')->set_message($country_msg),
 	&ConnectDNSBL('zz.countries.nerd.dk', @zzccs)->set_message($country_msg),
 );
 
 my $relay_msg = 'Access denied to %A: This address is vulnerable to open-relay/open-proxy attacks (listed in %L)';
 my @relayinput_dnsbls = (
-	&ConnectDNSBL('spamhosts.duh.org', '127.0.0.7')->set_message($relay_msg),
+	&ConnectDNSBL('combined.njabl.org', '127.0.0.2', '127.0.0.9')->set_message($relay_msg),
 	&ConnectDNSBL('dnsbl.sorbs.net', (map "127.0.0.$_", (2,3,4,5,9)))->set_message($relay_msg),
 	&ConnectDNSBL('list.dsbl.org')->set_message($relay_msg),
-	&ConnectDNSBL('relays.ordb.org')->set_message($relay_msg),
 	&ConnectDNSBL('relays.visi.com')->set_message($relay_msg),
-	&ConnectDNSBL('combined.njabl.org', '127.0.0.2', '127.0.0.9')->set_message($relay_msg),
 );
 
 my $dynamic_msg = 'Dynamic pool:  Connecting address %A is a dynamic address (listed in %L).  If this mail has been rejected in error';
 my @dynamic_dnsbls = (
-	&ConnectDNSBL('spamhosts.duh.org', '127.0.0.3')->set_message($dynamic_msg),
-	&ConnectDNSBL('dialups.visi.com', '127.0.0.3')->set_message($dynamic_msg), # PDL
 	&ConnectDNSBL('combined.njabl.org', '127.0.0.3')->set_message($dynamic_msg),
+	&ConnectDNSBL('dnsbl.sorbs.net', '127.0.0.10')->set_message($dynamic_msg),
 );
 
 # ...and these use the default message.
 my @generic_dnsbls = (
-	&ConnectDNSBL('spamhosts.duh.org', (map "127.0.0.$_", (2,4,5,6,8,100))),
-	&ConnectDNSBL('spews.spamhosts.duh.org'),
-	&ConnectDNSBL('sbl-xbl.spamhaus.org'),
-#	&ConnectDNSBL('cbl.abuseat.org'), # included in sbl-xbl
 	&ConnectDNSBL('combined.njabl.org', '127.0.0.4'),
+	&ConnectDNSBL('l1.spews.dnsbl.sorbs.net'),
+#	&ConnectDNSBL('spews.blackholes.us'), # alternate for SPEWS
+	&ConnectDNSBL('sbl-xbl.spamhaus.org'),
 );
 
 my @rhsbls = (
-	&MailDomainDNSBL('blackhole.securitysage.com'),
 	&MailDomainDNSBL('nomail.rhsbl.sorbs.net'),
 	&MailDomainDNSBL('rhsbl.ahbl.org'),
+	&MailDomainDNSBL('bogusmx.rfc-ignorant.org'),
 );
 
 ##### Inner chain: main collection of checks
@@ -210,6 +191,11 @@ my @rhsbls = (
 #
 
 my $inner_chain = new Mail::Milter::Chain(
+	&ConnectASNBL('asn.routeviews.org',
+		11969,	# Thought to be Dynamic Pipe
+		14479,	# Webfinity (Dynamic Pipe)
+		19961,	# Dynamic Pipe
+	),
 	$dynamic_rdns,
 	@country_dnsbls,
 	@relayinput_dnsbls,
@@ -227,9 +213,48 @@ my $inner_chain = new Mail::Milter::Chain(
 	$disallowed_encoding_headers,
 	$cloaked_encoding_headers,
 	&VirusBounceSpew,
-	&HeaderRegex('^Received:.*email\.bigpond\.com \(mshttpd\)')->set_message(
-		'We do not accept Telstra/Bigpond webmail here due to severe abuse; please use your real e-mail account'
-	),
+#	{
+#		connect => sub {
+#			my $ctx = shift;
+#			my $host = shift;
+#			if ($host =~ /^\[/) {
+#				$ctx->setreply(451, '4.7.0', "Host $host has no reverse DNS -- Please email postmaster\@duh.org for assistance.");
+#				return SMFIS_TEMPFAIL;
+#			}
+#			SMFIS_CONTINUE;
+#		},
+#	},
+	{
+		envfrom => sub {
+			my $ctx = shift;
+			if (shift ne '<>') {
+				$ctx->setpriv(undef);
+				return SMFIS_ACCEPT;
+			}
+			$ctx->setpriv(0);
+			SMFIS_CONTINUE;
+		},
+		envrcpt => sub {
+			my $ctx = shift;
+			my $nullcount = $ctx->getpriv;
+			$ctx->setpriv(++$nullcount);
+
+			if ($nullcount > 1) {
+				$ctx->setreply(554, '5.7.0', 'Null sender <> mail should have only one recipient');
+				return SMFIS_REJECT;
+			}
+			SMFIS_CONTINUE;
+		},
+		eoh => sub {
+			my $ctx = shift;
+			my $nullcount = $ctx->getpriv;
+			if ($nullcount > 1) {
+				$ctx->setreply(554, '5.7.0', 'Null sender <> mail should have only one recipient');
+				return SMFIS_REJECT;
+			}
+			SMFIS_ACCEPT;
+		},
+	},
 );
 
 ##### Error message rewriter: point user to postmaster@duh.org
@@ -289,7 +314,26 @@ my $outer_chain = new Mail::Milter::Chain(
 	&ConnectRegex(
 		@relay_domain_regexes,
 	)->accept_match(1),
-	$tnf_alias_fix,		# duh.org local only
+	{
+		# add delays to certain parts of transactions to trip ratware
+		# (this requires setting T=R:4m or so in sendmail.mc)
+		connect => sub {
+			my $ctx = shift;
+			my $host = shift;
+			$ctx->setpriv(1) if ($host =~ /^\[/); # flag no rDNS
+			SMFIS_CONTINUE;
+		},
+		envfrom => sub {
+			my $ctx = shift;
+			sleep 120 if $ctx->getpriv(); # no rDNS
+			SMFIS_CONTINUE;
+		},
+		envrcpt => sub {
+			my $ctx = shift;
+			sleep 30 if $ctx->getpriv(); # no rDNS
+			SMFIS_CONTINUE;
+		},
+	},
 	{
 		envrcpt => sub {
 			shift; # $ctx
@@ -298,8 +342,8 @@ my $outer_chain = new Mail::Milter::Chain(
 		},
 	},
 	&DeferToRCPT($rewritten_chain),
-);
-$outer_chain->accept_break(1);
+	require('greylist.pl'),
+)->accept_break(1);
 
 ##### The milter itself.
 #
@@ -308,6 +352,6 @@ $outer_chain->accept_break(1);
 # example work outside my installation.
 #
 
-Sendmail::Milter::auto_setconn('newmilter');
-Sendmail::Milter::register('newmilter', $outer_chain, SMFI_CURR_ACTS);
-Sendmail::Milter::main(10, 50);
+Sendmail::Milter::auto_setconn('pmilter');
+Sendmail::Milter::register('pmilter', $outer_chain, SMFI_CURR_ACTS);
+Sendmail::Milter::main(25, 50);

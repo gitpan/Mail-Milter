@@ -1,4 +1,4 @@
-# $Id: Milter.pm,v 1.20 2004/04/14 01:37:27 tvierling Exp $
+# $Id: Milter.pm,v 1.24 2004/11/25 21:36:49 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -40,7 +40,7 @@ use Carp;
 use Symbol;
 use UNIVERSAL;
 
-our $VERSION = '0.05';
+our $VERSION = '0.06';
 
 # internal function to resolve a callback from name to coderef
 sub resolve_callback ($$) {
@@ -77,6 +77,7 @@ L<Mail::Milter::Object>
 L<Mail::Milter::Wrapper>
 
 the Mail::Milter::Module::* manpages -- these include:
+ * ConnectASNBL
  * ConnectDNSBL
  * ConnectMatchesHostname
  * ConnectRegex
@@ -86,9 +87,11 @@ the Mail::Milter::Module::* manpages -- these include:
  * HeloRegex
  * HeloUnqualified
  * MailDomainDNSBL
+ * MailDomainDotMX
  * VirusBounceSpew
 
 the Mail::Milter::Wrapper::* manpages -- these include:
+ * DecodeSRS
  * DeferToRCPT
  * RejectMsgEditor
 
