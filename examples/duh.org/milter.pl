@@ -1,5 +1,5 @@
-#!/usr/local/bin/perl -w -I../../lib
-# $Id: milter.pl,v 1.23 2004/07/30 17:31:47 tvierling Exp $
+#!/usr/local/bin/perl -w -I../../lib -I/SRC/sf/pmilter/pmilter/lib
+# $Id: milter.pl,v 1.30 2006/03/22 15:42:27 tvierling Exp $
 #
 # Copyright (c) 2002 Todd Vierling <tv@pobox.com> <tv@duh.org>.
 # This file is hereby released to the public and is free for any use.
@@ -12,23 +12,35 @@
 use strict;
 use warnings;
 
+use DB_File;
+use Fcntl;
 use Carp qw{verbose};
 use Mail::Milter::Chain;
+use Mail::Milter::Module::AccessDB;
 use Mail::Milter::Module::ConnectASNBL;
 use Mail::Milter::Module::ConnectDNSBL;
 use Mail::Milter::Module::ConnectMatchesHostname;
 use Mail::Milter::Module::ConnectRegex;
 use Mail::Milter::Module::HeaderFromMissing;
 use Mail::Milter::Module::HeaderRegex;
+use Mail::Milter::Module::HeaderValidateMIME;
 use Mail::Milter::Module::HeloRawLiteral;
 use Mail::Milter::Module::HeloRegex;
 use Mail::Milter::Module::HeloUnqualified;
-use Mail::Milter::Module::MailDomainDNSBL;
+use Mail::Milter::Module::MailBogusNull;
+use Mail::Milter::Module::MailDomainDNSBL 0.04;
+use Mail::Milter::Module::MailDomainDotMX;
+use Mail::Milter::Module::SPF;
 use Mail::Milter::Module::VirusBounceSpew;
+use Mail::Milter::Wrapper::DecodeSRS;
 use Mail::Milter::Wrapper::DeferToRCPT;
 use Mail::Milter::Wrapper::RejectMsgEditor;
 use Sendmail::Milter 0.18;
 use Socket;
+
+# temporary flag to turn on 6to4-to-IPv4 translation
+use Sendmail::PMilter::Context;
+$Sendmail::PMilter::Context::Map6to4 = 1;
 
 #
 # This file is arranged in top-down order.  Objects constructed
@@ -37,17 +49,32 @@ use Socket;
 # reached first.
 #
 
+##### External data
+#
+# So let's try pretending we know how to do access_db here.
+# Unfortunately there isn't yet auto-reopen logic, so my script
+# used to regenerate access.db also restarts this milter (for now).
+#
+
+$Mail::Milter::Module::AccessDB::DEBUGLEVEL = 0;
+
+my %access;
+tie(%access, 'DB_File', '/etc/mail/access_milter.db', O_RDONLY, 0644, $DB_BTREE)
+	|| die "can't open accessdb: $!";
+
+my $access_db_full = &AccessDB(\%access)->ignore_tempfail(1);
+
+# here's an instance to wrap in DecodeSRS, so remove "connect" and "helo"
+my $access_db_noconnect = &AccessDB(\%access)->ignore_tempfail(1);
+delete $access_db_noconnect->{connect};
+delete $access_db_noconnect->{helo};
+
 ##### Bad headers
 #
 # It would be nice if we rejected before DATA, but alas, that's not
 # always possible.  However, there are some distinct spamsigns
 # present in mail headers.  YMMV.
 #
-
-my $bad_headers = &HeaderRegex(
-	# these don't belong in transit
-	'^X-UIDL: ',
-);
 
 my $spam_headers = &HeaderRegex(
 	# known spamware
@@ -58,28 +85,15 @@ my $spam_headers = &HeaderRegex(
 	'^Comments: Authenticated sender is',
 
 	# the law says you must tag, and my sanity says I must block
-	'^Subject: ADV ?:',
+	'^Subject: (ADV|SEXUALLY-EXPLICIT) ?:',
+
+	# current bad eggs
+	'^Subject:\s+YUKOS OIL\s*$',
+
+	# Suresh Ramasubramanian <mallet@BLACKEHLO.CLUESTICK.ORG> claimed this is OK
+	'^Received:.*\.mr\.outblaze\.com',
 )->set_message(
 	'NO UCE means NO SPAM (no kidding!)'
-);
-
-my $disallowed_encodings = '(?:'.join('|', qw{
-	big5
-	koi8-r
-	windows-125.
-}).')';
-
-my $disallowed_encoding_headers = &HeaderRegex(
-	'^Subject: =\?'.$disallowed_encodings.'\?',
-	'^Content-Type:.*\scharset='.$disallowed_encodings,
-)->set_message(
-	'Your international character set is not understood here; re-send your message using standard ISO-8859 or UTF8 encoding'
-);
-
-my $cloaked_encoding_headers = &HeaderRegex(
-	'^(?:Subject|From|To): =\?(?:US-ASCII|ISO-8859-1)\?'
-)->set_message(
-	'Encoded US-ASCII or ISO-8859-1 headers are not allowed due to severe abuse; re-send your message without the encoding'
 );
 
 ##### Dynamic pool rDNS, with exceptions.
@@ -93,6 +107,8 @@ my $dynamic_rdns = new Mail::Milter::Chain(
 	&ConnectRegex(
 		'\.(?:biz\.rr\.com|ipxserver\.de|knology\.net|netrox\.net|dq1sn\.easystreet\.com|(?:scrm01|snfc21)\.pacbell\.net)$',
 		'^wsip-[\d-]+\..*\.cox\.net$',
+		'^UNKNOWN-[\d-]+\.yahoo\.com$',
+		'64.201.182.287', # hpeyerl@netbsd.org (20051005)
 	)->accept_match(1),
 
 	&ConnectRegex(
@@ -121,7 +137,8 @@ my $dynamic_rdns = new Mail::Milter::Chain(
 # their ISO numeric equivalents used in zz.countries.nerd.dk.
 #
 
-my @ccs = qw(AR BR CL CN CO JO KR MX MY NG PK SG TH TM TW);
+# on parole: CO JO MY PK TH TW
+my @ccs = qw(AR BR CL CN KR MX NG SG TM);
 my %ccs = map { $_ => 1 } @ccs;
 
 my @zzccs;
@@ -161,28 +178,54 @@ my @relayinput_dnsbls = (
 	&ConnectDNSBL('combined.njabl.org', '127.0.0.2', '127.0.0.9')->set_message($relay_msg),
 	&ConnectDNSBL('dnsbl.sorbs.net', (map "127.0.0.$_", (2,3,4,5,9)))->set_message($relay_msg),
 	&ConnectDNSBL('list.dsbl.org')->set_message($relay_msg),
-	&ConnectDNSBL('relays.visi.com')->set_message($relay_msg),
 );
 
 my $dynamic_msg = 'Dynamic pool:  Connecting address %A is a dynamic address (listed in %L).  If this mail has been rejected in error';
 my @dynamic_dnsbls = (
+	&ConnectDNSBL('pdl.spamhosts.duh.org', '127.0.0.3')->set_message($dynamic_msg),
 	&ConnectDNSBL('combined.njabl.org', '127.0.0.3')->set_message($dynamic_msg),
 	&ConnectDNSBL('dnsbl.sorbs.net', '127.0.0.10')->set_message($dynamic_msg),
 );
 
 # ...and these use the default message.
 my @generic_dnsbls = (
+	&ConnectDNSBL('sbl-xbl.spamhaus.org'),
 	&ConnectDNSBL('combined.njabl.org', '127.0.0.4'),
 	&ConnectDNSBL('l1.spews.dnsbl.sorbs.net'),
 #	&ConnectDNSBL('spews.blackholes.us'), # alternate for SPEWS
-	&ConnectDNSBL('sbl-xbl.spamhaus.org'),
 );
 
 my @rhsbls = (
-	&MailDomainDNSBL('nomail.rhsbl.sorbs.net'),
+	&MailDomainDNSBL('multi.surbl.org', sub {
+		if (inet_ntoa(shift) =~ /^127\.0\.0\.(\d+)$/) {
+			# ws + ob + ab + jp.surbl.org
+			return ($1 & (4|16|32|64));
+		}
+		undef;
+	})->check_superdomains(-2),
+	&MailDomainDNSBL('multi.uribl.com', '127.0.0.2')->check_superdomains(-2),
 	&MailDomainDNSBL('rhsbl.ahbl.org'),
-	&MailDomainDNSBL('bogusmx.rfc-ignorant.org'),
 );
+
+##### Sender Policy Framework (http://spf.pobox.com/)
+#
+# This looks a little strange at first, but what it's actually doing
+# is providing a chain of checks, sarting with SPF, but which will
+# discard the results of all other checks if the SPF "pass"es.
+#
+
+my $spf_whitelisted_chain = new Mail::Milter::Chain(
+#	&SPF	->local_rules('ip4:216.240.140.0/26 mx:hostofhosts.com')
+#		->local_rules('include:sourceforge.net')
+#		->set_message('SPF check for %M failed')
+#		->whitelist_pass(1),
+	&DeferToRCPT(new Mail::Milter::Chain(
+		$dynamic_rdns,
+		@dynamic_dnsbls,
+		@country_dnsbls,
+#		require('greylist.pl'),
+	))
+)->accept_break(1);
 
 ##### Inner chain: main collection of checks
 #
@@ -190,69 +233,79 @@ my @rhsbls = (
 # simpler ones directly in-line below.
 #
 
+# This chain is needed both normally and after SRS decoding:
+my $envfrom_checks = new Mail::Milter::Chain(
+	&MailDomainDotMX->ignore_tempfail(1),
+	@rhsbls,
+);
+
 my $inner_chain = new Mail::Milter::Chain(
-	&ConnectASNBL('asn.routeviews.org',
-		11969,	# Thought to be Dynamic Pipe
-		14479,	# Webfinity (Dynamic Pipe)
-		19961,	# Dynamic Pipe
-	),
-	$dynamic_rdns,
-	@country_dnsbls,
+	$access_db_full,
+	$spf_whitelisted_chain,
 	@relayinput_dnsbls,
-	@dynamic_dnsbls,
 	@generic_dnsbls,
 	&HeloUnqualified,
 	&HeloRawLiteral,
-	&HeloRegex(
-		'^humblenet\.com$',
-	),
-	@rhsbls,
+	&DecodeSRS($access_db_noconnect),
+	&DecodeSRS($envfrom_checks),
+	$envfrom_checks,
 	&HeaderFromMissing,
-	$bad_headers,
+	&HeaderValidateMIME,
 	$spam_headers,
-	$disallowed_encoding_headers,
-	$cloaked_encoding_headers,
+	&MailBogusNull,
 	&VirusBounceSpew,
-#	{
-#		connect => sub {
-#			my $ctx = shift;
-#			my $host = shift;
-#			if ($host =~ /^\[/) {
-#				$ctx->setreply(451, '4.7.0', "Host $host has no reverse DNS -- Please email postmaster\@duh.org for assistance.");
-#				return SMFIS_TEMPFAIL;
-#			}
-#			SMFIS_CONTINUE;
-#		},
-#	},
 	{
+		connect => sub {
+			my $ctx = shift;
+			my $host = shift;
+
+			$ctx->set_key(host => $host);
+
+			# temporarily forgive IPv6 rDNS failures
+			if ($host =~ /^\[/ && $host !~ /:/) {
+				$ctx->setreply(451, '4.7.0', "Cannot find the reverse DNS for $host; see http://postmaster.info.aol.com/info/rdns.html for more information, or e-mail postmaster\@duh.org for assistance.");
+				return SMFIS_TEMPFAIL;
+			}
+			SMFIS_CONTINUE;
+		},
+		helo => sub {
+			my $ctx = shift;
+			my $helo = shift;
+
+			# current zombieware issue: 8 hex digits
+			if ($helo =~ /^\x{8}$/) {
+				$ctx->setreply(554, '5.7.0', "Bad HELO value '" + $helo + "'");
+				return SMFIS_REJECT;
+			}
+			SMFIS_CONTINUE;
+		},
 		envfrom => sub {
 			my $ctx = shift;
-			if (shift ne '<>') {
-				$ctx->setpriv(undef);
-				return SMFIS_ACCEPT;
-			}
-			$ctx->setpriv(0);
+			my $envfrom = shift;
+			my $fromattrs = +{ map { split(/=/, lc) } @_ };
+
+			$ctx->set_key(envfrom => $envfrom);
+			$ctx->set_key(fromattrs => $fromattrs);
+
 			SMFIS_CONTINUE;
 		},
 		envrcpt => sub {
 			my $ctx = shift;
-			my $nullcount = $ctx->getpriv;
-			$ctx->setpriv(++$nullcount);
+			my $envrcpt = shift;
+			my $envfrom = $ctx->get_key('envfrom');
+			my $fromattrs = $ctx->get_key('fromattrs');
+			my $host = $ctx->get_key('host');
 
-			if ($nullcount > 1) {
-				$ctx->setreply(554, '5.7.0', 'Null sender <> mail should have only one recipient');
-				return SMFIS_REJECT;
+			if ($host !~ /\.rollernet\.us/ && $envrcpt =~ /\@(duh\.org|smargon\.net)/) {
+				# for domains we know to have a secondary MX,
+				# kick back to the secondary for known high-bw mail:
+				if (defined($fromattrs->{size}) && $fromattrs->{size} > 150000) {
+					$ctx->setreply(452, '4.3.0', "Bandwidth load is currently too high for this message; please try my secondary MXs");
+					return SMFIS_TEMPFAIL;
+				}
 			}
+
 			SMFIS_CONTINUE;
-		},
-		eoh => sub {
-			my $ctx = shift;
-			my $nullcount = $ctx->getpriv;
-			if ($nullcount > 1) {
-				$ctx->setreply(554, '5.7.0', 'Null sender <> mail should have only one recipient');
-				return SMFIS_REJECT;
-			}
-			SMFIS_ACCEPT;
 		},
 	},
 );
@@ -285,7 +338,7 @@ my $rewritten_chain = &RejectMsgEditor($inner_chain, sub {
 # Note that I already put "localhost" in that file, so it's not
 # specified again in the call to ConnectRegex below.
 
-my @relay_domain_regexes;
+my @relay_domain_regexes = ( 'kasserver\.com$', '216.168.47.180' );
 open(I, '</etc/mail/relay-domains');
 while (<I>) {
 	chomp;
@@ -314,35 +367,36 @@ my $outer_chain = new Mail::Milter::Chain(
 	&ConnectRegex(
 		@relay_domain_regexes,
 	)->accept_match(1),
-	{
-		# add delays to certain parts of transactions to trip ratware
-		# (this requires setting T=R:4m or so in sendmail.mc)
-		connect => sub {
-			my $ctx = shift;
-			my $host = shift;
-			$ctx->setpriv(1) if ($host =~ /^\[/); # flag no rDNS
-			SMFIS_CONTINUE;
-		},
-		envfrom => sub {
-			my $ctx = shift;
-			sleep 120 if $ctx->getpriv(); # no rDNS
-			SMFIS_CONTINUE;
-		},
-		envrcpt => sub {
-			my $ctx = shift;
-			sleep 30 if $ctx->getpriv(); # no rDNS
-			SMFIS_CONTINUE;
-		},
-	},
+#	{
+#		# add delays to certain parts of transactions to trip ratware
+#		# (this requires setting T=R:4m or so in sendmail.mc)
+#		connect => sub {
+#			my $ctx = shift;
+#			my $host = shift;
+#			$ctx->setpriv(1) if ($host =~ /^\[/); # flag no rDNS
+#			SMFIS_CONTINUE;
+#		},
+#		envfrom => sub {
+#			my $ctx = shift;
+#			sleep 120 if $ctx->getpriv(); # no rDNS
+#			SMFIS_CONTINUE;
+#		},
+#		envrcpt => sub {
+#			my $ctx = shift;
+#			sleep 30 if $ctx->getpriv(); # no rDNS
+#			SMFIS_CONTINUE;
+#		},
+#	},
+
+	# always allow anything to abuse/postmaster
 	{
 		envrcpt => sub {
 			shift; # $ctx
-			(shift =~ /^<?postmaster\@/i) ?
+			(shift =~ /^<?(?:abuse|postmaster)\@/i) ?
 				SMFIS_ACCEPT : SMFIS_CONTINUE;
 		},
 	},
 	&DeferToRCPT($rewritten_chain),
-	require('greylist.pl'),
 )->accept_break(1);
 
 ##### The milter itself.

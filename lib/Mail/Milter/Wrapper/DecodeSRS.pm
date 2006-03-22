@@ -1,4 +1,4 @@
-# $Id: DecodeSRS.pm,v 1.1 2004/09/23 15:14:53 tvierling Exp $
+# $Id: DecodeSRS.pm,v 1.2 2004/12/15 17:47:07 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -42,7 +42,7 @@ use Carp;
 use Mail::Milter::ContextWrapper;
 use Sendmail::Milter 0.18; # get needed constants
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 =pod
 
@@ -112,11 +112,17 @@ sub wrapper {
 	my $callback_sub = shift;
 
 	if ($cbname eq 'envfrom') {
-		if ($_[1] !~ /^<SRS[01][=\+-][^\@]+=([^=\@]+)=([^=\@]+)\@/) {
+		my $addr = $_[1];
+
+		# Mail::SRS::Guarded SRS1: strip to Mail::SRS::Guarded SRS0
+		$addr =~ s/^<SRS1[=\+-](?:[^=]+=)?[^=]+\.[^=]+=[=\+-]/SRS0=/;
+
+		if ($addr =~ /^<SRS0[=\+-][^=]+=(?:[^=]+=)?([^=]+\.[^=]+)=(.+)\@/) {
+			# Mail::SRS::Guarded SRS0
+			$_[1] = "<$2\@$1>";
+		} else {
 			return SMFIS_ACCEPT; # skip this message
 		}
-
-		$_[1] = "<$2\@$1>";
 	}
 
 	&$callback_sub(@_);

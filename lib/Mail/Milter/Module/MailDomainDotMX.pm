@@ -1,4 +1,4 @@
-# $Id: MailDomainDotMX.pm,v 1.1 2004/11/25 21:36:49 tvierling Exp $
+# $Id: MailDomainDotMX.pm,v 1.2 2004/12/15 22:07:59 tvierling Exp $
 #
 # Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
@@ -39,6 +39,7 @@ use strict;
 use warnings;
 
 use Carp;
+use Net::DNS;
 use Sendmail::Milter 0.18; # get needed constants
 use Socket;
 use UNIVERSAL;

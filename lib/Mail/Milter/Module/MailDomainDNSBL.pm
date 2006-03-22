@@ -1,6 +1,6 @@
-# $Id: MailDomainDNSBL.pm,v 1.6 2004/11/25 21:08:25 tvierling Exp $
+# $Id: MailDomainDNSBL.pm,v 1.9 2006/03/22 15:48:23 tvierling Exp $
 #
-# Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
+# Copyright (c) 2002-2006 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
 # 
 # Redistribution and use in source and binary forms, with or without
@@ -43,7 +43,7 @@ use Sendmail::Milter 0.18; # get needed constants
 use Socket;
 use UNIVERSAL;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 =pod
 
@@ -66,7 +66,8 @@ Mail::Milter::Module::MailDomainDNSBL - milter to accept/reject mail whose sende
 This milter module rejects any mail from a sender's domain (in the MAIL
 FROM part of the SMTP transaction, not in the From: header) matching a
 given DNS Blocking List (DNSBL).  It can also function as a whitelisting
-Chain element; see C<accept_match()>.
+Chain element; see C<accept_match()>.  (This is known as a "RHSBL" check
+in some anti-spam lingo.)
 
 The check used by this module is a simple "A" record lookup, via the
 standard "gethostbyname" lookup mechanism.  This method does not require
@@ -119,6 +120,7 @@ sub new ($$;@) {
 	my $dnsbl = $this->{_dnsbl} = shift;
 
 	$this->{_accept} = 0;
+	$this->{_checksupers} = 0;
 	$this->{_ignoretempfail} = 0;
 	$this->{_message} = 'Access denied to sender address %M (domain is listed by %L)';
 
@@ -206,6 +208,33 @@ sub ignore_tempfail ($$) {
 
 =pod
 
+=item check_superdomains(NUM)
+
+If no match is returned by checking the domain name verbatim, recurse
+one level upward at a time and attempt the check again.  If NUM is
+positive, the recursion will stop after NUM recursions; if negative,
+the recursion will stop when abs(NUM) domain levels have been reached.
+The default is 0, meaning that no recursion will be done.
+
+For example, when checking the domain name FOO.BAR.BAZ.COM, NUM=1 will
+also check BAR.BAZ.COM; NUM=-1 will check BAR.BAZ.COM, BAZ.COM, and COM.
+
+This method returns a reference to the object itself, allowing this method
+call to be chained.
+
+=cut
+
+sub check_superdomains ($$) {
+	my $this = shift;
+	my $flag = shift;
+
+	$this->{_checksupers} = $flag;
+
+	$this;
+}
+
+=pod
+
 =item set_message(MESSAGE)
 
 Sets the message used when rejecting messages.  This string may contain
@@ -236,36 +265,45 @@ sub envfrom_callback {
 
 	return SMFIS_CONTINUE if ($from eq ''); # null <> sender
 
-	my $fromdomain = $from;
-
-	$fromdomain =~ s/^[^\@]+\@//;
-
 	my $dnsbl = $this->{_dnsbl};
-	my $lookup = $fromdomain.'.'.$dnsbl;
-	my @lookup_addrs;
-	(undef, undef, undef, undef, @lookup_addrs) = gethostbyname($lookup);
+	my $fdomain = $from;
 
-	unless (scalar @lookup_addrs) {
-		# h_errno 1 == HOST_NOT_FOUND
-		return SMFIS_CONTINUE if ($? == 1 || $this->{_ignoretempfail});
+	$fdomain =~ s/^[^\@]+\@//;
 
-		$ctx->setreply('451', '4.7.1', "Temporary failure in DNS lookup for $lookup");
-		return SMFIS_TEMPFAIL;
-	}
+	my @domainparts = split(/\./, $fdomain);
+	my $startmax = $this->{_checksupers};
 
-	foreach my $lookup_addr (@lookup_addrs) {
-		if (&{$this->{_matcher}}($lookup_addr, $fromdomain)) {
-			return SMFIS_ACCEPT if $this->{_accept};
+	$startmax += scalar(@domainparts) if ($startmax < 0);
+	$startmax = 0 if ($startmax < 0);
 
-			my $msg = $this->{_message};
+	for (my $i = 0; $i <= $#domainparts && $i <= $startmax; ++$i) {
+		my $fromdomain = join('.', @domainparts[$i..$#domainparts]);
+		my $lookup = $fromdomain.'.'.$dnsbl;
+		my @lookup_addrs;
+		(undef, undef, undef, undef, @lookup_addrs) = gethostbyname($lookup);
 
-			if (defined($msg)) {
-				$msg =~ s/%M/$from/g;
-				$msg =~ s/%L/$dnsbl/g;
-				$ctx->setreply('550', '5.7.1', $msg);
+		unless (scalar @lookup_addrs) {
+			# h_errno 1 == HOST_NOT_FOUND
+			next if ($? == 1 || $this->{_ignoretempfail});
+
+			$ctx->setreply('451', '4.7.1', "Temporary failure in DNS lookup for $lookup");
+			return SMFIS_TEMPFAIL;
+		}
+
+		foreach my $lookup_addr (@lookup_addrs) {
+			if (&{$this->{_matcher}}($lookup_addr, $fromdomain)) {
+				return SMFIS_ACCEPT if $this->{_accept};
+
+				my $msg = $this->{_message};
+
+				if (defined($msg)) {
+					$msg =~ s/%M/$from/g;
+					$msg =~ s/%L/$dnsbl/g;
+					$ctx->setreply('550', '5.7.1', $msg);
+				}
+
+				return SMFIS_REJECT;
 			}
-
-			return SMFIS_REJECT;
 		}
 	}
 

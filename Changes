@@ -1,6 +1,19 @@
-$Id: Changes,v 1.28 2004/11/25 21:39:30 tvierling Exp $
+$Id: Changes,v 1.34 2006/03/22 15:43:15 tvierling Exp $
 
 Revision history for Perl extension Mail::Milter.
+
+0.07  Wed Mar 22 15:45:00 2006 UTC
+	- added Mail::Milter::Module::AccessDB
+	- Mail::Milter::Module::MailDomainDotMX needed a "use Net::DNS"
+	- improved Mail::Milter::Wrapper::DecodeSRS parsing to understand
+		Mail::SRS::Guarded munging where the original localpart
+		already contained an equals (=) character
+	- added Mail::Milter::Module::SPF
+	- added Mail::Milter::Module::MailFakeNull
+	- added Mail::Milter::Module::HeaderValidateMIME
+	- added method check_superdomains() to
+	  Mail::Milter::Module::MailDomainDNSBL, allowing use of e.g.
+	  surbl.org blacklist with MAIL FROM:<> addresses
 
 0.06  Thu Nov 25 20:30:00 2004 UTC
 	- fixed Mail::Milter::Chain where second and subsequent RCPTs

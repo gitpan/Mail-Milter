@@ -1,6 +1,6 @@
-# $Id: Milter.pm,v 1.24 2004/11/25 21:36:49 tvierling Exp $
+# $Id: Milter.pm,v 1.29 2006/03/22 15:48:23 tvierling Exp $
 #
-# Copyright (c) 2002-2004 Todd Vierling <tv@pobox.com> <tv@duh.org>
+# Copyright (c) 2002-2006 Todd Vierling <tv@pobox.com> <tv@duh.org>
 # All rights reserved.
 # 
 # Redistribution and use in source and binary forms, with or without
@@ -40,7 +40,7 @@ use Carp;
 use Symbol;
 use UNIVERSAL;
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 # internal function to resolve a callback from name to coderef
 sub resolve_callback ($$) {
@@ -77,17 +77,21 @@ L<Mail::Milter::Object>
 L<Mail::Milter::Wrapper>
 
 the Mail::Milter::Module::* manpages -- these include:
+ * AccessDB
  * ConnectASNBL
  * ConnectDNSBL
  * ConnectMatchesHostname
  * ConnectRegex
  * HeaderFromMissing
  * HeaderRegex
+ * HeaderValidateMIME
  * HeloRawLiteral
  * HeloRegex
  * HeloUnqualified
+ * MailBogusNull
  * MailDomainDNSBL
  * MailDomainDotMX
+ * SPF
  * VirusBounceSpew
 
 the Mail::Milter::Wrapper::* manpages -- these include:
